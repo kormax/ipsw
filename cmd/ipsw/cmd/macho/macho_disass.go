@@ -64,6 +64,8 @@ func init() {
 	machoDisassCmd.Flags().Bool("dec-nocache", false, "Do not use decompilation cache")
 	machoDisassCmd.Flags().Float64("dec-temp", 0.2, "LLM temperature for decompilation")
 	machoDisassCmd.Flags().Float64("dec-top-p", 0.1, "LLM top_p for decompilation")
+	machoDisassCmd.Flags().Int("dec-retries", 0, "Number of retries for LLM decompilation")
+	machoDisassCmd.Flags().Float64("dec-retry-backoff", 30.0, "Backoff time in seconds between retries")
 	machoDisassCmd.Flags().String("dec-theme", "nord", "Decompilation color theme (nord, github, etc)")
 	machoDisassCmd.RegisterFlagCompletionFunc("dec-theme", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return styles.Names(), cobra.ShellCompDirectiveNoFileComp
@@ -92,6 +94,8 @@ func init() {
 	viper.BindPFlag("macho.disass.dec-nocache", machoDisassCmd.Flags().Lookup("dec-nocache"))
 	viper.BindPFlag("macho.disass.dec-temp", machoDisassCmd.Flags().Lookup("dec-temp"))
 	viper.BindPFlag("macho.disass.dec-top-p", machoDisassCmd.Flags().Lookup("dec-top-p"))
+	viper.BindPFlag("macho.disass.dec-retries", machoDisassCmd.Flags().Lookup("dec-retries"))
+	viper.BindPFlag("macho.disass.dec-retry-backoff", machoDisassCmd.Flags().Lookup("dec-retry-backoff"))
 	viper.BindPFlag("macho.disass.dec-theme", machoDisassCmd.Flags().Lookup("dec-theme"))
 	viper.BindPFlag("macho.disass.json", machoDisassCmd.Flags().Lookup("json"))
 	viper.BindPFlag("macho.disass.quiet", machoDisassCmd.Flags().Lookup("quiet"))
@@ -319,6 +323,8 @@ var machoDisassCmd = &cobra.Command{
 								Verbose:      viper.GetBool("verbose"),
 								Color:        viper.GetBool("color") && !viper.GetBool("no-color"),
 								Theme:        viper.GetString("macho.disass.dec-theme"),
+								MaxRetries:   viper.GetInt("macho.disass.dec-retries"),
+								RetryBackoff: viper.GetFloat64("macho.disass.dec-retry-backoff"),
 							})
 							if err != nil {
 								return fmt.Errorf("failed to decompile via llm: %v", err)
@@ -446,6 +452,8 @@ var machoDisassCmd = &cobra.Command{
 							Verbose:      viper.GetBool("verbose"),
 							Color:        viper.GetBool("color") && !viper.GetBool("no-color"),
 							Theme:        viper.GetString("macho.disass.dec-theme"),
+							MaxRetries:   viper.GetInt("macho.disass.dec-retries"),
+							RetryBackoff: viper.GetFloat64("macho.disass.dec-retry-backoff"),
 						})
 						if err != nil {
 							return fmt.Errorf("failed to decompile via llm: %v", err)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/apex/log"
 	"github.com/blacktop/ipsw/internal/ai/anthropic"
@@ -47,6 +48,8 @@ type Config struct {
 	Stream       bool
 	DisableCache bool
 	Verbose      bool
+	MaxRetries   int
+	RetryBackoff float64
 }
 
 type CachingAI struct {
@@ -66,8 +69,29 @@ func (c *CachingAI) Chat() (string, error) {
 		}
 	}
 
-	response, err := c.ai.Chat()
-	if err != nil {
+	var response string
+	var err error
+	var lastErr error
+	retries := 0
+	maxRetries := c.config.MaxRetries
+
+	for retries <= maxRetries {
+		if retries > 0 {
+			if c.config.RetryBackoff > 0 {
+				backoffTime := time.Duration(c.config.RetryBackoff * float64(time.Second))
+				log.Infof("Retrying AI request in %.2f seconds (attempt %d/%d)", c.config.RetryBackoff, retries, maxRetries)
+				time.Sleep(backoffTime)
+			} else {
+				log.Infof("Retrying AI request immediately (attempt %d/%d)", retries, maxRetries)
+			}
+		}
+
+		response, err = c.ai.Chat()
+		if err == nil {
+			break
+		}
+
+		lastErr = err
 		errStr := strings.ToLower(err.Error())
 		if strings.Contains(errStr, "model not found") ||
 			strings.Contains(errStr, "invalid model") ||
@@ -81,8 +105,21 @@ func (c *CachingAI) Chat() (string, error) {
 					log.Warnf("Failed to delete provider models from cache for %s: %v", c.config.Provider, delErr)
 				}
 			}
+			// Don't retry for model-related errors
+			return "", err
 		}
-		return "", err
+
+		log.Warnf("AI request failed (attempt %d/%d): %v", retries, maxRetries, err)
+		retries++
+
+		if retries > maxRetries {
+			log.Errorf("Maximum retry attempts (%d) reached for AI request", maxRetries)
+			break
+		}
+	}
+
+	if err != nil {
+		return "", lastErr
 	}
 
 	if c.cache != nil && !c.config.DisableCache && !c.config.Stream {
@@ -194,6 +231,11 @@ func NewAI(ctx context.Context, cfg *Config) (AI, error) {
 	} else {
 		log.Warn("AI caching is disabled by config")
 		cache = nil
+	}
+
+	// Set default values for retry-related fields if not specified
+	if cfg.MaxRetries <= 0 {
+		cfg.MaxRetries = 0 // Default: no retries
 	}
 
 	switch cfg.Provider {
